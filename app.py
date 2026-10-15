@@ -121,7 +121,7 @@ def save_data(df):
 df_absensi = load_data()
 
 # Header Utama
-st.title("🏫 Aplikasi Absensi Siswa")
+st.title("🏫 Aplikasi Absensi Siswa MI Sukadana")
 
 # --- SIDEBAR NAVIGASI PERAN ---
 st.sidebar.header("📌 Pilih Menu")
