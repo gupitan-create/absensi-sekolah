@@ -18,8 +18,17 @@ if "data_absensi" not in st.session_state:
 
 # 3. Data Master Siswa per Kelas
 DATA_MASTER_SISWA = {
-    "Kelas 1": ["Ahmad Fauzi", "Budi Santoso", "Citra Dewi", "Deni Pratama"],
-    "Kelas 2": ["Eka Putri", "Fajar Nugraha", "Gita Gutawa", "Hadi Wijaya"],
+    "Kelas 1": [
+        "ABIZARD ALFARIZI PERMANA", "DAVINA BILQIS RAMADHANI", "FA’IS NAZWAN SETIAWAN", 
+        "FARHAN FAHREZA ALFATURIZKY","GIBRAN ALFA RIZQI","KEISYA NOVIA FIRDAUS",
+        "KESYA AYU KHALISA","KHALISA AULIA ANJANI","MUHAMAD FAJRIN FEBRIANA FIRMANSYAH",
+        "MUHAMMAD ALBASYARI MAULANA","SITI MASIITHOH MUNAWWAROH","TANZILUROHMAN","TIO ARIF AL-PARIZI",        
+    ],
+    "Kelas 2": [
+        "ALTHAF ABRISAM", "AQILA ALFATUNISA", "AQMAR ZAYYAN", "DELISHA DZIKRANIA PUTRI",
+        "EL-ZAIDAN AFZAL", "INDAH SULISTYANI", "MUHAMAD FAHMI LUFINO KUSMAYADI",
+        "MUHAMMAD SYAHRUL MUBAROK", "SHEYRA AZRA NUR AMALIAH",
+    ],
     "Kelas 3": ["Indah Sari", "Joko Susilo", "Kartika Putri", "Lestari Ayu"],
     "Kelas 4": ["Muhammad Ali", "Nanda Kurnia", "Oki Setiawan", "Putri Utami"],
     "Kelas 5": ["Qori Rizki", "Rian Hidayat", "Siti Rahma", "Tono Sudirjo"],
