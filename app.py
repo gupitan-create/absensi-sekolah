@@ -66,14 +66,14 @@ df_absensi = load_data()
 # Header Utama
 st.title("🏫 Aplikasi Absensi Siswa")
 
-# --- SIDEBAR NAVIGASI UNTUK MEMBEDAKAN PERAN ---
-st.sidebar.header("📌 Pilih Akses")
-peran = st.sidebar.radio("Masuk Sebagai:", ["Wali Kelas (Input Absen)", "Admin (Rekap Data)"])
+# --- SIDEBAR NAVIGASI PERAN ---
+st.sidebar.header("📌 Pilih Menu")
+menu_pilihan = st.sidebar.radio("Masuk Sebagai:", ["Wali Kelas (Input Absen)", "Admin (Rekap & Kelola)"])
 
 # =========================================================
 # 1. HALAMAN WALI KELAS (HANYA INPUT DATA)
 # =========================================================
-if peran == "Wali Kelas (Input Absen)":
+if menu_pilihan == "Wali Kelas (Input Absen)":
     st.subheader("📝 Form Input Absensi Harian")
     
     # Pilih Kelas
@@ -86,12 +86,10 @@ if peran == "Wali Kelas (Input Absen)":
     daftar_siswa = DATA_MASTER_SISWA[kelas_terpilih]
     st.write(f"**Daftar Siswa {kelas_terpilih}** ({len(daftar_siswa)} Siswa)")
     
-    # Dictionary Temp untuk Menampung Pilihan Status Absen
     status_input = {}
     
     with st.form(key=f"form_absen_{kelas_terpilih}"):
         for siswa in daftar_siswa:
-            # Pilihan Radio Button
             status_input[siswa] = st.radio(
                 f"👤 {siswa}",
                 ["Hadir", "Sakit", "Izin", "Alpa"],
@@ -119,56 +117,69 @@ if peran == "Wali Kelas (Input Absen)":
         if not df_absensi.empty:
             df_absensi = df_absensi[~((df_absensi["Tanggal"] == tgl_str) & (df_absensi["Kelas"] == kelas_terpilih))]
         
-        # Gabungkan data baru
         df_absensi = pd.concat([df_absensi, df_baru], ignore_index=False)
         save_data(df_absensi)
         
         st.success(f"✅ Absensi {kelas_terpilih} tanggal {tgl_str} berhasil disimpan!")
 
 # =========================================================
-# 2. HALAMAN ADMIN (REKAP DATA & HAPUS DATA)
+# 2. HALAMAN ADMIN (DILENGKAPI PASSWORD)
 # =========================================================
 else:
-    st.subheader("📊 Halaman Khusus Admin (Rekap Data)")
+    st.subheader("🔐 Login Admin")
     
-    if df_absensi.empty:
-        st.info("Belum ada data absensi yang tersimpan.")
-    else:
-        # Filter Tampilan Rekap
-        st.write("### Filter Data Rekap")
-        pilihan_kelas = st.selectbox("Filter Kelas:", ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()))
-        
-        df_tampil = df_absensi.copy()
-        if pilihan_kelas != "Semua Kelas":
-            df_tampil = df_tampil[df_tampil["Kelas"] == pilihan_kelas]
-            
-        st.dataframe(df_tampil, use_container_width=True)
-        
-        # Tombol Download File CSV / Excel
-        csv_data = df_tampil.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Download Data Absensi (CSV/Excel)",
-            data=csv_data,
-            file_name=f"rekap_absensi_{pilihan_kelas.lower().replace(' ', '_')}.csv",
-            mime="text/csv"
-        )
-        
+    # Masukkan Password (bisa diubah di bawah ini, misal: "admin123")
+    PASSWORD_ADMIN = "admin123" 
+    
+    input_password = st.text_input("Masukkan Password Admin:", type="password")
+    
+    if input_password == PASSWORD_ADMIN:
+        st.success("✅ Password benar. Selamat datang, Admin!")
         st.markdown("---")
-        # Fitur Hapus Entri Salah (Khusus Admin)
-        st.write("### 🗑️ Hapus Data Absensi")
-        with st.expander("Klik di sini untuk menghapus data tanggal/kelas tertentu"):
-            st.warning("Perhatian: Data yang dihapus tidak dapat dikembalikan.")
+        st.subheader("📊 Halaman Rekap Data & Kelola")
+        
+        if df_absensi.empty:
+            st.info("Belum ada data absensi yang tersimpan.")
+        else:
+            # Filter Tampilan Rekap
+            pilihan_kelas = st.selectbox("Filter Kelas:", ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()))
             
-            daftar_tgl = df_absensi["Tanggal"].unique()
-            tgl_hapus = st.selectbox("Pilih Tanggal yang Ingin Dihapus:", daftar_tgl)
-            kelas_hapus = st.selectbox("Pilih Kelas yang Ingin Dihapus:", ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()))
-            
-            if st.button("🔴 Hapus Data Terpilih"):
-                if kelas_hapus == "Semua Kelas":
-                    df_absensi = df_absensi[df_absensi["Tanggal"] != tgl_hapus]
-                else:
-                    df_absensi = df_absensi[~((df_absensi["Tanggal"] == tgl_hapus) & (df_absensi["Kelas"] == kelas_hapus))]
+            df_tampil = df_absensi.copy()
+            if pilihan_kelas != "Semua Kelas":
+                df_tampil = df_tampil[df_tampil["Kelas"] == pilihan_kelas]
                 
-                save_data(df_absensi)
-                st.success(f"Data tanggal {tgl_hapus} ({kelas_hapus}) berhasil dihapus!")
-                st.rerun()
+            st.dataframe(df_tampil, use_container_width=True)
+            
+            # Tombol Download File
+            csv_data = df_tampil.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Data Absensi (CSV/Excel)",
+                data=csv_data,
+                file_name=f"rekap_absensi_{pilihan_kelas.lower().replace(' ', '_')}.csv",
+                mime="text/csv"
+            )
+            
+            st.markdown("---")
+            # Fitur Hapus Entri Salah
+            st.write("### 🗑️ Hapus Data Absensi")
+            with st.expander("Klik di sini untuk menghapus data"):
+                st.warning("Perhatian: Data yang dihapus tidak dapat dikembalikan.")
+                
+                daftar_tgl = df_absensi["Tanggal"].unique()
+                tgl_hapus = st.selectbox("Pilih Tanggal:", daftar_tgl)
+                kelas_hapus = st.selectbox("Pilih Kelas:", ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()))
+                
+                if st.button("🔴 Hapus Data Terpilih"):
+                    if kelas_hapus == "Semua Kelas":
+                        df_absensi = df_absensi[df_absensi["Tanggal"] != tgl_hapus]
+                    else:
+                        df_absensi = df_absensi[~((df_absensi["Tanggal"] == tgl_hapus) & (df_absensi["Kelas"] == kelas_hapus))]
+                    
+                    save_data(df_absensi)
+                    st.success(f"Data tanggal {tgl_hapus} ({kelas_hapus}) berhasil dihapus!")
+                    st.rerun()
+                    
+    elif input_password == "":
+        st.info("Silakan masukkan password admin di atas untuk membuka menu rekap.")
+    else:
+        st.error("❌ Password salah! Guru tidak dapat mengakses menu ini.")
