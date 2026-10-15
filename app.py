@@ -79,7 +79,7 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
     # Pilih Kelas
     kelas_terpilih = st.selectbox("Pilih Kelas Anda:", list(DATA_MASTER_SISWA.keys()))
     
-    # Pilih Tanggal (Bisa Mundur untuk Tanggal Terlewat)
+    # Pilih Tanggal
     tgl_absensi = st.date_input("Tanggal Absensi:", value=date.today())
     
     st.markdown("---")
@@ -101,7 +101,8 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
         
     if btn_simpan:
         data_baru = []
-        tgl_str = tgl_absensi.strftime("%Y-%m-%d")
+        # Mengubah format tanggal menjadi dd-mm-yyyy (Contoh: 15-10-2026)
+        tgl_str = tgl_absensi.strftime("%d-%m-%Y")
         
         for siswa, status in status_input.items():
             data_baru.append({
@@ -128,7 +129,7 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
 else:
     st.subheader("🔐 Login Admin")
     
-    # Masukkan Password (bisa diubah di bawah ini, misal: "admin123")
+    # Password Admin (Bisa diganti sesuai keinginan)
     PASSWORD_ADMIN = "admin123" 
     
     input_password = st.text_input("Masukkan Password Admin:", type="password")
