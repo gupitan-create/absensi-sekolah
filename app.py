@@ -2,6 +2,8 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
+import gspread
+from gspread_formatting import format_cell_range, CellFormat
 
 # ---------------------------------------------------------
 # KONFIGURASI APLIKASI
@@ -16,14 +18,30 @@ KOLOM = ["Tanggal", "Kelas", "Nama Siswa", "Status"]
 STATUS_ABSENSI = ["Hadir", "Sakit", "Izin", "Alpa"]
 PASSWORD_ADMIN = st.secrets.get("admin", {}).get("password", "admin123")
 
-# Koneksi Google Sheets. Pastikan konfigurasi berada di:
-# .streamlit/secrets.toml dengan bagian [connections.gsheets]
-@st.cache_resource
+
 def get_connection():
+    """Buat koneksi GSheets. Tanpa cache manual agar secrets selalu dibaca ulang."""
     return st.connection("gsheets", type=GSheetsConnection)
+
+
+def cek_private_key():
+    """Diagnostik ringan: pastikan private_key di secrets.toml berformat PEM."""
+    try:
+        pk = st.secrets["connections"]["gsheets"]["private_key"]
+    except Exception:
+        return False, "Bagian [connections.gsheets] tidak ditemukan di secrets.toml."
+    if not pk:
+        return False, "private_key kosong."
+    if "-----BEGIN PRIVATE KEY-----" not in pk or "-----END PRIVATE KEY-----" not in pk:
+        return False, "private_key tidak memiliki header/footer PEM yang benar."
+    if "\\n" not in pk and "\n" not in pk:
+        return False, "private_key tidak memiliki newline; format salah."
+    return True, f"private_key OK ({len(pk)} karakter)."
+
 
 def kosongkan_data():
     return pd.DataFrame(columns=KOLOM)
+
 
 def rapikan_data(data):
     """Menormalkan data agar header/kolom dari Google Sheets konsisten."""
@@ -33,7 +51,6 @@ def rapikan_data(data):
     data = data.copy()
     data.columns = [str(kolom).strip() for kolom in data.columns]
 
-    # Jika urutan kolom berbeda tetapi semua kolom ada, susun ulang.
     if set(KOLOM).issubset(set(data.columns)):
         data = data[KOLOM]
     else:
@@ -44,13 +61,16 @@ def rapikan_data(data):
         data[kolom] = data[kolom].fillna("").astype(str).str.strip()
     return data.reset_index(drop=True)
 
+
 def load_data():
-    """Membaca data tanpa menyembunyikan pesan kesalahan koneksi."""
+    """Baca data. Tandai status koneksi di session_state."""
     try:
         conn = get_connection()
         data = conn.read(worksheet="Sheet1", ttl=0)
+        st.session_state["gsheets_ok"] = True
         return rapikan_data(data)
     except Exception as exc:
+        st.session_state["gsheets_ok"] = False
         st.error(
             "Gagal membaca Google Sheets. Periksa .streamlit/secrets.toml, "
             "akses service account, nama worksheet 'Sheet1', dan koneksi internet."
@@ -59,16 +79,37 @@ def load_data():
             st.code(str(exc))
         return kosongkan_data()
 
+
 def save_data(data):
-    """Menyimpan data dengan urutan kolom yang tetap."""
+    """Simpan data dengan urutan kolom tetap, lalu atur format rata kiri."""
     data = rapikan_data(data)
     conn = get_connection()
     conn.update(worksheet="Sheet1", data=data[KOLOM])
+    st.session_state["gsheets_ok"] = True
+    
+    # --- MENGATUR FORMAT RATA KIRI OTOMATIS SETELAH SIMPAN ---
+    try:
+        gc = gspread.service_account_from_dict(st.secrets["connections"]["gsheets"])
+        sh = gc.open("Data Absensi MI Sukadana")
+        ws = sh.worksheet("Sheet1")
+        
+        # Format rata kiri untuk kolom Tanggal, Kelas, dan Nama Siswa (Kolom A, B, C)
+        format_cell_range(ws, 'A2:C10000', CellFormat(horizontalAlignment='LEFT'))
+        
+        # Format rata tengah untuk kolom Status (Kolom D) agar lebih rapi
+        format_cell_range(ws, 'D2:D10000', CellFormat(horizontalAlignment='CENTER'))
+        
+    except Exception as e:
+        # Jika gagal format, data tetap tersimpan dan error tidak ditampilkan ke user
+        print(f"Peringatan: Gagal mengatur format sel: {e}")
+    # ---------------------------------------------------------
+
 
 def tampilkan_error(exc, tindakan="menyimpan data"):
     st.error(f"Gagal {tindakan}. Periksa koneksi dan konfigurasi Google Sheets.")
     with st.expander("Detail kesalahan"):
         st.code(str(exc))
+
 
 DATA_MASTER_SISWA = {
     "Kelas 1": [
@@ -176,8 +217,17 @@ with st.sidebar:
         "Masuk sebagai:",
         ["Wali Kelas (Input Absen)", "Admin (Rekap & Kelola)"],
     )
+    st.markdown("---")
+    with st.expander("🩺 Diagnostik koneksi"):
+        ok, pesan = cek_private_key()
+        if ok:
+            st.success(pesan)
+        else:
+            st.error(pesan)
+        st.caption("Status baca terakhir: "
+                   + ("Berhasil" if st.session_state.get("gsheets_ok") else "Gagal/Belum"))
 
-# Baca data pada setiap rerun agar perubahan terbaru dapat terlihat.
+# Baca data pada setiap rerun agar perubahan terbaru terlihat.
 df_absensi = load_data()
 
 if menu_pilihan == "Wali Kelas (Input Absen)":
@@ -229,6 +279,13 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
         btn_simpan = st.form_submit_button("💾 Simpan Absensi", type="primary")
 
     if btn_simpan:
+        if not st.session_state.get("gsheets_ok", False):
+            st.error(
+                "Tidak bisa menyimpan: koneksi Google Sheets belum berhasil dibaca. "
+                "Perbaiki koneksi dulu agar data lama tidak terhapus."
+            )
+            st.stop()
+
         data_baru = pd.DataFrame(
             [
                 {
@@ -326,6 +383,11 @@ else:
                     type="primary",
                     disabled=not konfirmasi,
                 ):
+                    if not st.session_state.get("gsheets_ok", False):
+                        st.error(
+                            "Tidak bisa menghapus: koneksi Google Sheets belum berhasil dibaca."
+                        )
+                        st.stop()
                     if kelas_hapus == "Semua Kelas":
                         sisa = df_absensi[df_absensi["Tanggal"] != tanggal_hapus]
                     else:
