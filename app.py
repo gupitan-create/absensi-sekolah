@@ -168,14 +168,15 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
   # Cek apakah sudah ada data untuk tanggal dan kelas ini sebelumnya
   df_existing = pd.DataFrame()
   if not df_absensi.empty:
+    # PERBAIKAN ADA DI SINI (penambahan kurung siku penutup yang benar)
     df_existing = df_absensi[
         (df_absensi["Tanggal"] == tgl_str)
-        & (df_absensi["Kelas"] == kelas_terpilih]
+        & (df_absensi["Kelas"] == kelas_terpilih)
+    ]
 
   # Buat template data absensi hari ini
   data_template = []
   for siswa in daftar_siswa:
-    # Cari status sebelumnya jika ada
     status_awal = "Hadir"
     if not df_existing.empty:
       match = df_existing[df_existing["Nama Siswa"] == siswa]
@@ -193,7 +194,6 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
 
   df_input = pd.DataFrame(data_template)
 
-  # Menggunakan st.data_editor agar lebih rapi, cepat, dan tidak rentan bug loop form
   edited_df = st.data_editor(
       df_input,
       column_config={
@@ -213,7 +213,6 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
 
   if st.button("💾 Simpan Absensi", type="primary"):
     with st.spinner("Menyimpan data ke Google Sheets..."):
-      # Hapus data lama jika tanggal & kelas sama (mencegah duplikat)
       if not df_absensi.empty:
         df_absensi = df_absensi[
             ~(
@@ -222,7 +221,6 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
             )
         ]
 
-      # Gabungkan dengan data baru hasil edit
       df_absensi = pd.concat([df_absensi, edited_df], ignore_index=True)
       save_data(df_absensi)
 
