@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
-from streamlit_gsheets import GSheetsConnection
+from st_gsheets import GSheetsConnection
 
 # Set Konfigurasi Halaman Web
 st.set_page_config(page_title="Absensi Siswa Sekolah", page_icon="🏫", layout="centered")
