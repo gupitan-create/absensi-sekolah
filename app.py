@@ -1,6 +1,7 @@
 from datetime import date
+import gspread
+from google.oauth2.service_account import Credentials
 import pandas as pd
-from st_gsheets_connection import GSheetsConnection
 import streamlit as st
 
 # Set Konfigurasi Halaman Web
@@ -8,27 +9,52 @@ st.set_page_config(
     page_title="Absensi Siswa Sekolah", page_icon="🏫", layout="centered"
 )
 
-# --- KONEKSI KE GOOGLE SHEETS ---
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- KONEKSI KE GOOGLE SHEETS MENGGUNAKAN GSPREAD ---
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
 
-# Fungsi Membaca Data dari Google Sheets
+@st.cache_resource
+def get_gsheet_client():
+  # Membaca Service Account dari st.secrets["connections"]["gsheets"]
+  credentials_info = st.secrets["connections"]["gsheets"]
+  creds = Credentials.from_service_account_info(
+      credentials_info, scopes=SCOPES
+  )
+  return gspread.authorize(creds)
+
+
+def get_worksheet():
+  client = get_gsheet_client()
+  spreadsheet_name = st.secrets["connections"]["gsheets"].get(
+      "spreadsheet", "Absensi Siswa"
+  )
+  sh = client.open(spreadsheet_name)
+  return sh.sheet1
+
+
 def load_data():
   try:
-    data = conn.read(worksheet="Sheet1", ttl="0s")
+    ws = get_worksheet()
+    data = ws.get_all_records()
+    df = pd.DataFrame(data)
     if (
-        data.empty
-        or list(data.columns) != ["Tanggal", "Kelas", "Nama Siswa", "Status"]
+        df.empty
+        or list(df.columns) != ["Tanggal", "Kelas", "Nama Siswa", "Status"]
     ):
       return pd.DataFrame(columns=["Tanggal", "Kelas", "Nama Siswa", "Status"])
-    return data
+    return df
   except Exception:
     return pd.DataFrame(columns=["Tanggal", "Kelas", "Nama Siswa", "Status"])
 
 
-# Fungsi Menyimpan Data ke Google Sheets
 def save_data(df):
-  conn.update(worksheet="Sheet1", data=df)
+  ws = get_worksheet()
+  ws.clear()
+  # Update header dan isi data
+  ws.update([df.columns.values.tolist()] + df.values.tolist())
 
 
 # Inisialisasi Data
@@ -141,7 +167,7 @@ menu_pilihan = st.sidebar.radio(
 )
 
 # =========================================================
-# 1. HALAMAN WALI KELAS (INPUT MENGGUNAKAN DATA EDITOR / TABEL INTERAKTIF)
+# 1. HALAMAN WALI KELAS
 # =========================================================
 if menu_pilihan == "Wali Kelas (Input Absen)":
   st.subheader("📝 Form Input Absensi Harian")
@@ -157,24 +183,16 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
   st.markdown("---")
   daftar_siswa = DATA_MASTER_SISWA[kelas_terpilih]
   st.write(f"**Daftar Siswa {kelas_terpilih}** ({len(daftar_siswa)} Siswa)")
-  st.info(
-      "💡 Tips: Ubah kolom Status (Hadir/Sakit/Izin/Alpa) pada tabel di bawah"
-      " sesuai kehadiran siswa, lalu klik tombol Simpan."
-  )
 
-  # Menyiapkan DataFrame default untuk input absensi harian
   tgl_str = tgl_absensi.strftime("%d-%m-%Y")
 
-  # Cek apakah sudah ada data untuk tanggal dan kelas ini sebelumnya
   df_existing = pd.DataFrame()
   if not df_absensi.empty:
-    # PERBAIKAN ADA DI SINI (penambahan kurung siku penutup yang benar)
     df_existing = df_absensi[
         (df_absensi["Tanggal"] == tgl_str)
         & (df_absensi["Kelas"] == kelas_terpilih)
     ]
 
-  # Buat template data absensi hari ini
   data_template = []
   for siswa in daftar_siswa:
     status_awal = "Hadir"
@@ -183,14 +201,12 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
       if not match.empty:
         status_awal = match.iloc[0]["Status"]
 
-    data_template.append(
-        {
-            "Tanggal": tgl_str,
-            "Kelas": kelas_terpilih,
-            "Nama Siswa": siswa,
-            "Status": status_awal,
-        }
-    )
+    data_template.append({
+        "Tanggal": tgl_str,
+        "Kelas": kelas_terpilih,
+        "Nama Siswa": siswa,
+        "Status": status_awal,
+    })
 
   df_input = pd.DataFrame(data_template)
 
@@ -225,13 +241,12 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
       save_data(df_absensi)
 
       st.success(
-          f"✅ Absensi {kelas_terpilih} tanggal {tgl_str} berhasil disimpan ke"
-          " Google Sheets!"
+          f"✅ Absensi {kelas_terpilih} tanggal {tgl_str} berhasil disimpan!"
       )
       st.rerun()
 
 # =========================================================
-# 2. HALAMAN ADMIN (DILENGKAPI PASSWORD)
+# 2. HALAMAN ADMIN
 # =========================================================
 else:
   st.subheader("🔐 Login Admin")
@@ -272,11 +287,9 @@ else:
 
       csv_data = df_tampil.to_csv(index=False).encode("utf-8")
       st.download_button(
-          label="📥 Download Data Absensi (CSV/Excel)",
+          label="📥 Download Data Absensi (CSV)",
           data=csv_data,
-          file_name=(
-              f"rekap_absensi_{pilihan_kelas.lower().replace(' ', '_')}_{pilihan_tanggal}.csv"
-          ),
+          file_name=f"rekap_absensi_{pilihan_kelas.lower().replace(' ', '_')}_{pilihan_tanggal}.csv",
           mime="text/csv",
       )
 
@@ -310,14 +323,11 @@ else:
 
             save_data(df_absensi)
             st.success(
-                f"Data tanggal {tgl_hapus} ({kelas_hapus}) berhasil dihapus dari"
-                " Google Sheets!"
+                f"Data tanggal {tgl_hapus} ({kelas_hapus}) berhasil dihapus!"
             )
             st.rerun()
 
   elif input_password == "":
-    st.info(
-        "Silakan masukkan password admin di atas untuk membuka menu rekap."
-    )
+    st.info("Silakan masukkan password admin di atas.")
   else:
-    st.error("❌ Password salah! Guru tidak dapat mengakses menu ini.")
+    st.error("❌ Password salah!")
