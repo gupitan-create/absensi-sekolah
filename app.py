@@ -1,12 +1,20 @@
 from datetime import date
 import pandas as pd
-import streamlit as st
 from streamlit_gsheets import GSheetsConnection
+import streamlit as st
 
 # Set Konfigurasi Halaman Web
 st.set_page_config(
     page_title="Absensi Siswa Sekolah", page_icon="🏫", layout="centered"
 )
+
+# --- PERBAIKAN FORMAT PRIVATE KEY OTOMATIS ---
+if "connections" in st.secrets and "gsheets" in st.secrets["connections"]:
+  if "private_key" in st.secrets["connections"]["gsheets"]:
+    # Mengganti \n mentah menjadi baris baru nyata jika terbaca sebagai string biasa
+    st.secrets["connections"]["gsheets"]["private_key"] = st.secrets[
+        "connections"
+    ]["gsheets"]["private_key"].replace("\\n", "\n")
 
 # --- KONEKSI KE GOOGLE SHEETS ---
 conn = st.connection("gsheets", type=GSheetsConnection)
