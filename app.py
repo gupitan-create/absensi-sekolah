@@ -1,7 +1,7 @@
 from datetime import date
 import pandas as pd
-from st_gsheets_connection import GSheetsConnection
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 
 # Set Konfigurasi Halaman Web
 st.set_page_config(
@@ -156,9 +156,7 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
 
   st.markdown("---")
   daftar_siswa = DATA_MASTER_SISWA[kelas_terpilih]
-  st.write(
-      f"**Daftar Siswa {kelas_terpilih}** ({len(daftar_siswa)} Siswa)"
-  )
+  st.write(f"**Daftar Siswa {kelas_terpilih}** ({len(daftar_siswa)} Siswa)")
   st.info(
       "Silakan pilih status kehadiran (Hadir / Sakit / Izin / Alpa) di bawah"
       " nama masing-masing siswa:"
