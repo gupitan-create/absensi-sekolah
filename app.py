@@ -81,8 +81,22 @@ def load_data():
 
 
 def save_data(data):
-    """Simpan data dengan urutan kolom tetap, lalu atur format rata kiri."""
+    """Simpan data, urutkan berdasarkan tanggal, lalu atur format rata kiri."""
     data = rapikan_data(data)
+    
+    # --- PROSES PENGURUTAN TANGGAL (DARI TERAWAL KE TERAKHIR) ---
+    if not data.empty:
+        # 1. Ubah kolom Tanggal (teks DD-MM-YYYY) menjadi objek waktu sementara
+        data['Tanggal_Sort'] = pd.to_datetime(data['Tanggal'], format='%d-%m-%Y', errors='coerce')
+        
+        # 2. Urutkan berdasarkan tanggal (ascending=True = dari kecil ke besar)
+        data = data.sort_values(by='Tanggal_Sort', ascending=True)
+        
+        # 3. Hapus kolom bantuan setelah diurutkan
+        data = data.drop(columns=['Tanggal_Sort'])
+        data = data.reset_index(drop=True)
+    # ------------------------------------------------------------
+
     conn = get_connection()
     conn.update(worksheet="Sheet1", data=data[KOLOM])
     st.session_state["gsheets_ok"] = True
@@ -100,7 +114,7 @@ def save_data(data):
         format_cell_range(ws, 'D2:D10000', CellFormat(horizontalAlignment='CENTER'))
         
     except Exception as e:
-        # Jika gagal format, data tetap tersimpan dan error tidak ditampilkan ke user
+        # Jika gagal format, data tetap tersimpan
         print(f"Peringatan: Gagal mengatur format sel: {e}")
     # ---------------------------------------------------------
 
