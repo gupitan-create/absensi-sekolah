@@ -1,7 +1,6 @@
 from datetime import date
-import gspread
-from google.oauth2.service_account import Credentials
 import pandas as pd
+from st_gsheets_connection import GSheetsConnection
 import streamlit as st
 
 # Set Konfigurasi Halaman Web
@@ -9,50 +8,27 @@ st.set_page_config(
     page_title="Absensi Siswa Sekolah", page_icon="🏫", layout="centered"
 )
 
-# --- KONEKSI KE GOOGLE SHEETS MENGGUNAKAN GSPREAD ---
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
+# --- KONEKSI KE GOOGLE SHEETS ---
+conn = st.connection("gsheets", type=GSheetsConnection)
 
 
-@st.cache_resource
-def get_gsheet_client():
-  credentials_info = st.secrets["connections"]["gsheets"]
-  creds = Credentials.from_service_account_info(
-      credentials_info, scopes=SCOPES
-  )
-  return gspread.authorize(creds)
-
-
-def get_worksheet():
-  client = get_gsheet_client()
-  spreadsheet_name = st.secrets["connections"]["gsheets"].get(
-      "spreadsheet", "Absensi Siswa"
-  )
-  sh = client.open(spreadsheet_name)
-  return sh.sheet1
-
-
+# Fungsi Membaca Data dari Google Sheets
 def load_data():
   try:
-    ws = get_worksheet()
-    data = ws.get_all_records()
-    df = pd.DataFrame(data)
+    data = conn.read(worksheet="Sheet1", ttl="0s")
     if (
-        df.empty
-        or list(df.columns) != ["Tanggal", "Kelas", "Nama Siswa", "Status"]
+        data.empty
+        or list(data.columns) != ["Tanggal", "Kelas", "Nama Siswa", "Status"]
     ):
       return pd.DataFrame(columns=["Tanggal", "Kelas", "Nama Siswa", "Status"])
-    return df
+    return data
   except Exception:
     return pd.DataFrame(columns=["Tanggal", "Kelas", "Nama Siswa", "Status"])
 
 
+# Fungsi Menyimpan Data ke Google Sheets
 def save_data(df):
-  ws = get_worksheet()
-  ws.clear()
-  ws.update([df.columns.values.tolist()] + df.values.tolist())
+  conn.update(worksheet="Sheet1", data=df)
 
 
 # Inisialisasi Data
@@ -165,7 +141,7 @@ menu_pilihan = st.sidebar.radio(
 )
 
 # =========================================================
-# 1. HALAMAN WALI KELAS (INPUT PER SISWA DENGAN TOMBOL PILIHAN)
+# 1. HALAMAN WALI KELAS (INPUT PER SISWA)
 # =========================================================
 if menu_pilihan == "Wali Kelas (Input Absen)":
   st.subheader("📝 Form Input Absensi Harian")
@@ -190,7 +166,6 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
 
   tgl_str = tgl_absensi.strftime("%d-%m-%Y")
 
-  # Cek apakah sudah ada data untuk tanggal dan kelas ini sebelumnya
   df_existing = pd.DataFrame()
   if not df_absensi.empty:
     df_existing = df_absensi[
@@ -202,7 +177,7 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
 
   with st.form(key=f"form_absen_{kelas_terpilih}_{tgl_str}"):
     for i, siswa in enumerate(daftar_siswa, 1):
-      status_awal_idx = 0  # Default "Hadir"
+      status_awal_idx = 0
       options_list = ["Hadir", "Sakit", "Izin", "Alpa"]
 
       if not df_existing.empty:
@@ -238,7 +213,6 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
 
       df_baru = pd.DataFrame(data_baru)
 
-      # Hapus data lama jika tanggal & kelas sama (mencegah duplikat)
       if not df_absensi.empty:
         df_absensi = df_absensi[
             ~(
@@ -251,13 +225,12 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
       save_data(df_absensi)
 
       st.success(
-          f"✅ Absensi {kelas_terpilih} tanggal {tgl_str} berhasil disimpan ke"
-          " Google Sheets!"
+          f"✅ Absensi {kelas_terpilih} tanggal {tgl_str} berhasil disimpan!"
       )
       st.rerun()
 
 # =========================================================
-# 2. HALAMAN ADMIN (DILENGKAPI PASSWORD)
+# 2. HALAMAN ADMIN
 # =========================================================
 else:
   st.subheader("🔐 Login Admin")
@@ -307,10 +280,7 @@ else:
       st.markdown("---")
       st.write("### 🗑️ Hapus Data Absensi")
       with st.expander("Klik di sini untuk menghapus data"):
-        st.warning(
-            "Perhatian: Data yang dihapus dari Google Sheets tidak dapat"
-            " dikembalikan."
-        )
+        st.warning("Perhatian: Data yang dihapus tidak dapat dikembalikan.")
 
         daftar_tgl = df_absensi["Tanggal"].unique()
         tgl_hapus = st.selectbox("Pilih Tanggal:", daftar_tgl, key="hapus_tgl")
@@ -321,7 +291,7 @@ else:
         )
 
         if st.button("🔴 Hapus Data Terpilih", type="primary"):
-          with st.spinner("Menghapus data dari Google Sheets..."):
+          with st.spinner("Menghapus data..."):
             if kelas_hapus == "Semua Kelas":
               df_absensi = df_absensi[df_absensi["Tanggal"] != tgl_hapus]
             else:
