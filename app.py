@@ -3,38 +3,73 @@ import pandas as pd
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 
-# Set Konfigurasi Halaman Web
+# ---------------------------------------------------------
+# KONFIGURASI APLIKASI
+# ---------------------------------------------------------
 st.set_page_config(
-    page_title="Absensi Siswa Sekolah", page_icon="🏫", layout="centered"
+    page_title="Absensi Siswa MI Sukadana",
+    page_icon="🏫",
+    layout="centered",
 )
 
-# --- KONEKSI KE GOOGLE SHEETS ---
-conn = st.connection("gsheets", type=GSheetsConnection)
+KOLOM = ["Tanggal", "Kelas", "Nama Siswa", "Status"]
+STATUS_ABSENSI = ["Hadir", "Sakit", "Izin", "Alpa"]
+PASSWORD_ADMIN = st.secrets.get("admin", {}).get("password", "admin123")
 
+# Koneksi Google Sheets. Pastikan konfigurasi berada di:
+# .streamlit/secrets.toml dengan bagian [connections.gsheets]
+@st.cache_resource
+def get_connection():
+    return st.connection("gsheets", type=GSheetsConnection)
 
-# Fungsi Membaca Data dari Google Sheets
+def kosongkan_data():
+    return pd.DataFrame(columns=KOLOM)
+
+def rapikan_data(data):
+    """Menormalkan data agar header/kolom dari Google Sheets konsisten."""
+    if data is None or data.empty:
+        return kosongkan_data()
+
+    data = data.copy()
+    data.columns = [str(kolom).strip() for kolom in data.columns]
+
+    # Jika urutan kolom berbeda tetapi semua kolom ada, susun ulang.
+    if set(KOLOM).issubset(set(data.columns)):
+        data = data[KOLOM]
+    else:
+        return kosongkan_data()
+
+    data = data.dropna(how="all")
+    for kolom in KOLOM:
+        data[kolom] = data[kolom].fillna("").astype(str).str.strip()
+    return data.reset_index(drop=True)
+
 def load_data():
-  try:
-    data = conn.read(worksheet="Sheet1", ttl="0s")
-    if (
-        data.empty
-        or list(data.columns) != ["Tanggal", "Kelas", "Nama Siswa", "Status"]
-    ):
-      return pd.DataFrame(columns=["Tanggal", "Kelas", "Nama Siswa", "Status"])
-    return data
-  except Exception:
-    return pd.DataFrame(columns=["Tanggal", "Kelas", "Nama Siswa", "Status"])
+    """Membaca data tanpa menyembunyikan pesan kesalahan koneksi."""
+    try:
+        conn = get_connection()
+        data = conn.read(worksheet="Sheet1", ttl=0)
+        return rapikan_data(data)
+    except Exception as exc:
+        st.error(
+            "Gagal membaca Google Sheets. Periksa .streamlit/secrets.toml, "
+            "akses service account, nama worksheet 'Sheet1', dan koneksi internet."
+        )
+        with st.expander("Detail kesalahan"):
+            st.code(str(exc))
+        return kosongkan_data()
 
+def save_data(data):
+    """Menyimpan data dengan urutan kolom yang tetap."""
+    data = rapikan_data(data)
+    conn = get_connection()
+    conn.update(worksheet="Sheet1", data=data[KOLOM])
 
-# Fungsi Menyimpan Data ke Google Sheets
-def save_data(df):
-  conn.update(worksheet="Sheet1", data=df)
+def tampilkan_error(exc, tindakan="menyimpan data"):
+    st.error(f"Gagal {tindakan}. Periksa koneksi dan konfigurasi Google Sheets.")
+    with st.expander("Detail kesalahan"):
+        st.code(str(exc))
 
-
-# Inisialisasi Data
-df_absensi = load_data()
-
-# Data Master Siswa per Kelas
 DATA_MASTER_SISWA = {
     "Kelas 1": [
         "ABIZARD ALFARIZI PERMANA",
@@ -131,182 +166,185 @@ DATA_MASTER_SISWA = {
     ],
 }
 
-# Header Utama
+
 st.title("🏫 Aplikasi Absensi Siswa MI Sukadana")
+st.caption("Pencatatan kehadiran harian siswa")
 
-# --- SIDEBAR NAVIGASI PERAN ---
-st.sidebar.header("📌 Pilih Menu")
-menu_pilihan = st.sidebar.radio(
-    "Masuk Sebagai:", ["Wali Kelas (Input Absen)", "Admin (Rekap & Kelola)"]
-)
-
-# =========================================================
-# 1. HALAMAN WALI KELAS (INPUT PER SISWA)
-# =========================================================
-if menu_pilihan == "Wali Kelas (Input Absen)":
-  st.subheader("📝 Form Input Absensi Harian")
-
-  col_k1, col_k2 = st.columns(2)
-  with col_k1:
-    kelas_terpilih = st.selectbox(
-        "Pilih Kelas Anda:", list(DATA_MASTER_SISWA.keys())
+with st.sidebar:
+    st.header("📌 Pilih Menu")
+    menu_pilihan = st.radio(
+        "Masuk sebagai:",
+        ["Wali Kelas (Input Absen)", "Admin (Rekap & Kelola)"],
     )
-  with col_k2:
-    tgl_absensi = st.date_input("Tanggal Absensi:", value=date.today())
 
-  st.markdown("---")
-  daftar_siswa = DATA_MASTER_SISWA[kelas_terpilih]
-  st.write(f"**Daftar Siswa {kelas_terpilih}** ({len(daftar_siswa)} Siswa)")
-  st.info(
-      "Silakan pilih status kehadiran (Hadir / Sakit / Izin / Alpa) di bawah"
-      " nama masing-masing siswa:"
-  )
+# Baca data pada setiap rerun agar perubahan terbaru dapat terlihat.
+df_absensi = load_data()
 
-  tgl_str = tgl_absensi.strftime("%d-%m-%Y")
+if menu_pilihan == "Wali Kelas (Input Absen)":
+    st.subheader("📝 Form Input Absensi Harian")
+    col_k1, col_k2 = st.columns(2)
 
-  df_existing = pd.DataFrame()
-  if not df_absensi.empty:
-    df_existing = df_absensi[
-        (df_absensi["Tanggal"] == tgl_str)
-        & (df_absensi["Kelas"] == kelas_terpilih)
-    ]
+    with col_k1:
+        kelas_terpilih = st.selectbox(
+            "Pilih Kelas Anda:", list(DATA_MASTER_SISWA.keys())
+        )
+    with col_k2:
+        tgl_absensi = st.date_input("Tanggal Absensi:", value=date.today())
 
-  status_input = {}
+    tgl_str = tgl_absensi.strftime("%d-%m-%Y")
+    daftar_siswa = DATA_MASTER_SISWA[kelas_terpilih]
 
-  with st.form(key=f"form_absen_{kelas_terpilih}_{tgl_str}"):
-    for i, siswa in enumerate(daftar_siswa, 1):
-      status_awal_idx = 0
-      options_list = ["Hadir", "Sakit", "Izin", "Alpa"]
+    st.markdown("---")
+    st.write(f"**Daftar Siswa {kelas_terpilih}** ({len(daftar_siswa)} siswa)")
+    st.info("Pilih status kehadiran setiap siswa, lalu tekan Simpan Absensi.")
 
-      if not df_existing.empty:
-        match = df_existing[df_existing["Nama Siswa"] == siswa]
-        if not match.empty:
-          val = match.iloc[0]["Status"]
-          if val in options_list:
-            status_awal_idx = options_list.index(val)
-
-      st.markdown(f"**{i}. {siswa}**")
-      status_input[siswa] = st.radio(
-          f"Status {siswa}",
-          options_list,
-          index=status_awal_idx,
-          horizontal=True,
-          key=f"radio_{kelas_terpilih}_{siswa}",
-          label_visibility="collapsed",
-      )
-      st.markdown("---")
-
-    btn_simpan = st.form_submit_button("💾 Simpan Absensi", type="primary")
-
-  if btn_simpan:
-    with st.spinner("Menyimpan data ke Google Sheets..."):
-      data_baru = []
-      for siswa, status in status_input.items():
-        data_baru.append({
-            "Tanggal": tgl_str,
-            "Kelas": kelas_terpilih,
-            "Nama Siswa": siswa,
-            "Status": status,
-        })
-
-      df_baru = pd.DataFrame(data_baru)
-
-      if not df_absensi.empty:
-        df_absensi = df_absensi[
-            ~(
-                (df_absensi["Tanggal"] == tgl_str)
-                & (df_absensi["Kelas"] == kelas_terpilih)
-            )
+    df_existing = kosongkan_data()
+    if not df_absensi.empty:
+        df_existing = df_absensi[
+            (df_absensi["Tanggal"] == tgl_str)
+            & (df_absensi["Kelas"] == kelas_terpilih)
         ]
 
-      df_absensi = pd.concat([df_absensi, df_baru], ignore_index=True)
-      save_data(df_absensi)
+    status_input = {}
+    with st.form(key=f"form_absen_{kelas_terpilih}_{tgl_absensi.isoformat()}"):
+        for i, siswa in enumerate(daftar_siswa, start=1):
+            status_awal_idx = 0
+            match = df_existing[df_existing["Nama Siswa"] == siswa]
+            if not match.empty:
+                status_lama = str(match.iloc[0]["Status"]).strip()
+                if status_lama in STATUS_ABSENSI:
+                    status_awal_idx = STATUS_ABSENSI.index(status_lama)
 
-      st.success(
-          f"✅ Absensi {kelas_terpilih} tanggal {tgl_str} berhasil disimpan!"
-      )
-      st.rerun()
-
-# =========================================================
-# 2. HALAMAN ADMIN
-# =========================================================
-else:
-  st.subheader("🔐 Login Admin")
-  PASSWORD_ADMIN = "admin123"
-
-  input_password = st.text_input(
-      "Masukkan Password Admin:", type="password", key="admin_pass_input"
-  )
-
-  if input_password == PASSWORD_ADMIN:
-    st.success("✅ Password benar. Selamat datang, Admin!")
-    st.markdown("---")
-    st.subheader("📊 Halaman Rekap Data & Kelola")
-
-    if df_absensi.empty:
-      st.info("Belum ada data absensi di Google Sheets.")
-    else:
-      col1, col2 = st.columns(2)
-      with col1:
-        pilihan_kelas = st.selectbox(
-            "Filter Kelas:", ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys())
-        )
-      with col2:
-        daftar_tanggal_tersedia = ["Semua Tanggal"] + sorted(
-            df_absensi["Tanggal"].unique().tolist()
-        )
-        pilihan_tanggal = st.selectbox(
-            "Filter Tanggal:", daftar_tanggal_tersedia
-        )
-
-      df_tampil = df_absensi.copy()
-      if pilihan_kelas != "Semua Kelas":
-        df_tampil = df_tampil[df_tampil["Kelas"] == pilihan_kelas]
-      if pilihan_tanggal != "Semua Tanggal":
-        df_tampil = df_tampil[df_tampil["Tanggal"] == pilihan_tanggal]
-
-      st.dataframe(df_tampil, use_container_width=True)
-
-      csv_data = df_tampil.to_csv(index=False).encode("utf-8")
-      st.download_button(
-          label="📥 Download Data Absensi (CSV)",
-          data=csv_data,
-          file_name=f"rekap_absensi_{pilihan_kelas.lower().replace(' ', '_')}_{pilihan_tanggal}.csv",
-          mime="text/csv",
-      )
-
-      st.markdown("---")
-      st.write("### 🗑️ Hapus Data Absensi")
-      with st.expander("Klik di sini untuk menghapus data"):
-        st.warning("Perhatian: Data yang dihapus tidak dapat dikembalikan.")
-
-        daftar_tgl = df_absensi["Tanggal"].unique()
-        tgl_hapus = st.selectbox("Pilih Tanggal:", daftar_tgl, key="hapus_tgl")
-        kelas_hapus = st.selectbox(
-            "Pilih Kelas:",
-            ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()),
-            key="hapus_kelas",
-        )
-
-        if st.button("🔴 Hapus Data Terpilih", type="primary"):
-          with st.spinner("Menghapus data..."):
-            if kelas_hapus == "Semua Kelas":
-              df_absensi = df_absensi[df_absensi["Tanggal"] != tgl_hapus]
-            else:
-              df_absensi = df_absensi[
-                  ~(
-                      (df_absensi["Tanggal"] == tgl_hapus)
-                      & (df_absensi["Kelas"] == kelas_hapus)
-                  )
-              ]
-
-            save_data(df_absensi)
-            st.success(
-                f"Data tanggal {tgl_hapus} ({kelas_hapus}) berhasil dihapus!"
+            st.markdown(f"**{i}. {siswa}**")
+            status_input[siswa] = st.radio(
+                f"Status {siswa}",
+                options=STATUS_ABSENSI,
+                index=status_awal_idx,
+                horizontal=True,
+                key=f"radio_{kelas_terpilih}_{tgl_absensi.isoformat()}_{i}",
+                label_visibility="collapsed",
             )
-            st.rerun()
+            st.divider()
 
-  elif input_password == "":
-    st.info("Silakan masukkan password admin di atas.")
-  else:
-    st.error("❌ Password salah!")
+        btn_simpan = st.form_submit_button("💾 Simpan Absensi", type="primary")
+
+    if btn_simpan:
+        data_baru = pd.DataFrame(
+            [
+                {
+                    "Tanggal": tgl_str,
+                    "Kelas": kelas_terpilih,
+                    "Nama Siswa": siswa,
+                    "Status": status,
+                }
+                for siswa, status in status_input.items()
+            ],
+            columns=KOLOM,
+        )
+        if not df_absensi.empty:
+            df_absensi = df_absensi[
+                ~(
+                    (df_absensi["Tanggal"] == tgl_str)
+                    & (df_absensi["Kelas"] == kelas_terpilih)
+                )
+            ]
+        hasil = pd.concat([df_absensi, data_baru], ignore_index=True)
+        try:
+            with st.spinner("Menyimpan data ke Google Sheets..."):
+                save_data(hasil)
+            st.success(f"Absensi {kelas_terpilih} tanggal {tgl_str} berhasil disimpan.")
+            st.rerun()
+        except Exception as exc:
+            tampilkan_error(exc, "menyimpan absensi")
+
+else:
+    st.subheader("🔐 Login Admin")
+    input_password = st.text_input(
+        "Masukkan Password Admin:", type="password", key="admin_pass_input"
+    )
+
+    if input_password and input_password == PASSWORD_ADMIN:
+        st.success("Password benar. Selamat datang, Admin!")
+        st.markdown("---")
+        st.subheader("📊 Rekap Data & Kelola")
+
+        if df_absensi.empty:
+            st.info("Belum ada data absensi di Google Sheets.")
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                pilihan_kelas = st.selectbox(
+                    "Filter Kelas:",
+                    ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()),
+                )
+            with col2:
+                daftar_tanggal = sorted(
+                    df_absensi["Tanggal"].dropna().astype(str).unique().tolist()
+                )
+                pilihan_tanggal = st.selectbox(
+                    "Filter Tanggal:", ["Semua Tanggal"] + daftar_tanggal
+                )
+
+            df_tampil = df_absensi.copy()
+            if pilihan_kelas != "Semua Kelas":
+                df_tampil = df_tampil[df_tampil["Kelas"] == pilihan_kelas]
+            if pilihan_tanggal != "Semua Tanggal":
+                df_tampil = df_tampil[df_tampil["Tanggal"] == pilihan_tanggal]
+
+            st.dataframe(df_tampil, use_container_width=True, hide_index=True)
+            csv_data = df_tampil.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                label="📥 Download Data Absensi (CSV)",
+                data=csv_data,
+                file_name=(
+                    f"rekap_absensi_{pilihan_kelas.lower().replace(' ', '_')}_"
+                    f"{pilihan_tanggal.lower().replace(' ', '_')}.csv"
+                ),
+                mime="text/csv",
+            )
+
+            st.markdown("---")
+            st.subheader("🗑️ Hapus Data Absensi")
+            with st.expander("Klik di sini untuk menghapus data"):
+                st.warning("Perhatian: data yang dihapus tidak dapat dikembalikan.")
+                tanggal_hapus = st.selectbox(
+                    "Pilih Tanggal:",
+                    sorted(df_absensi["Tanggal"].dropna().astype(str).unique().tolist()),
+                    key="hapus_tgl",
+                )
+                kelas_hapus = st.selectbox(
+                    "Pilih Kelas:",
+                    ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()),
+                    key="hapus_kelas",
+                )
+                konfirmasi = st.checkbox(
+                    "Saya yakin ingin menghapus data yang dipilih.",
+                    key="konfirmasi_hapus",
+                )
+                if st.button(
+                    "🔴 Hapus Data Terpilih",
+                    type="primary",
+                    disabled=not konfirmasi,
+                ):
+                    if kelas_hapus == "Semua Kelas":
+                        sisa = df_absensi[df_absensi["Tanggal"] != tanggal_hapus]
+                    else:
+                        sisa = df_absensi[
+                            ~(
+                                (df_absensi["Tanggal"] == tanggal_hapus)
+                                & (df_absensi["Kelas"] == kelas_hapus)
+                            )
+                        ]
+                    try:
+                        with st.spinner("Menghapus data..."):
+                            save_data(sisa)
+                        st.success(
+                            f"Data tanggal {tanggal_hapus} ({kelas_hapus}) berhasil dihapus."
+                        )
+                        st.rerun()
+                    except Exception as exc:
+                        tampilkan_error(exc, "menghapus data")
+    elif input_password == "":
+        st.info("Silakan masukkan password admin di atas.")
+    else:
+        st.error("Password admin salah.")
