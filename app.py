@@ -199,23 +199,37 @@ else:
         if df_absensi.empty:
             st.info("Belum ada data absensi yang tersimpan.")
         else:
-            # Filter Tampilan Rekap
-            pilihan_kelas = st.selectbox("Filter Kelas:", ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()))
+            # --- TAMBAHAN FILTER TANGGAL & KELAS ---
+            col1, col2 = st.columns(2)
+
+            with col1:
+                pilihan_kelas = st.selectbox("Filter Kelas:", ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()))
             
-            df_tampil = df_absensi.copy()
+            with col2:
+                # Mengambil daftar tanggal unik yang ada di data
+                daftar_tanggal_tersedia = ["Semua Tanggal"] + sorted(df_absensi["Tanggal"].unique().tolist())
+                pilihan_tanggal = st.selectbox("Filter Tanggal:", daftar_tanggal_tersedia)
+
+            df_tampil = df_absensi.copy()         
+ 
+            # Terapkan filter kelas
             if pilihan_kelas != "Semua Kelas":
-                df_tampil = df_tampil[df_tampil["Kelas"] == pilihan_kelas]
-                
+                df_tampil = df_tampil[df_tampil["Kelas"] == pilihan_kelas]            
+
+            # Terapkan filter tanggal
+            if pilihan_tanggal != "Semua Tanggal":
+                df_tampil = df_tampil[df_tampil["Tanggal"] == pilihan_tanggal]
+
             st.dataframe(df_tampil, use_container_width=True)
-            
-            # Tombol Download File
+
+            # Tombol Download File sesuai data yang difilter
             csv_data = df_tampil.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Download Data Absensi (CSV/Excel)",
                 data=csv_data,
-                file_name=f"rekap_absensi_{pilihan_kelas.lower().replace(' ', '_')}.csv",
+                file_name=f"rekap_absensi_{pilihan_kelas.lower().replace(' ', '_')}_{pilihan_tanggal}.csv",
                 mime="text/csv"
-            )
+            )          
             
             st.markdown("---")
             # Fitur Hapus Entri Salah
@@ -224,8 +238,8 @@ else:
                 st.warning("Perhatian: Data yang dihapus tidak dapat dikembalikan.")
                 
                 daftar_tgl = df_absensi["Tanggal"].unique()
-                tgl_hapus = st.selectbox("Pilih Tanggal:", daftar_tgl)
-                kelas_hapus = st.selectbox("Pilih Kelas:", ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()))
+                tgl_hapus = st.selectbox("Pilih Tanggal:", daftar_tgl, key="hapus_tgl")
+                kelas_hapus = st.selectbox("Pilih Kelas:", ["Semua Kelas"] + list(DATA_MASTER_SISWA.keys()), key="hapus_kelas")
                 
                 if st.button("🔴 Hapus Data Terpilih"):
                     if kelas_hapus == "Semua Kelas":
