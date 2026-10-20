@@ -18,7 +18,6 @@ SCOPES = [
 
 @st.cache_resource
 def get_gsheet_client():
-  # Membaca Service Account dari st.secrets["connections"]["gsheets"]
   credentials_info = st.secrets["connections"]["gsheets"]
   creds = Credentials.from_service_account_info(
       credentials_info, scopes=SCOPES
@@ -53,7 +52,6 @@ def load_data():
 def save_data(df):
   ws = get_worksheet()
   ws.clear()
-  # Update header dan isi data
   ws.update([df.columns.values.tolist()] + df.values.tolist())
 
 
@@ -167,7 +165,7 @@ menu_pilihan = st.sidebar.radio(
 )
 
 # =========================================================
-# 1. HALAMAN WALI KELAS
+# 1. HALAMAN WALI KELAS (INPUT PER SISWA DENGAN TOMBOL PILIHAN)
 # =========================================================
 if menu_pilihan == "Wali Kelas (Input Absen)":
   st.subheader("📝 Form Input Absensi Harian")
@@ -182,10 +180,17 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
 
   st.markdown("---")
   daftar_siswa = DATA_MASTER_SISWA[kelas_terpilih]
-  st.write(f"**Daftar Siswa {kelas_terpilih}** ({len(daftar_siswa)} Siswa)")
+  st.write(
+      f"**Daftar Siswa {kelas_terpilih}** ({len(daftar_siswa)} Siswa)"
+  )
+  st.info(
+      "Silakan pilih status kehadiran (Hadir / Sakit / Izin / Alpa) di bawah"
+      " nama masing-masing siswa:"
+  )
 
   tgl_str = tgl_absensi.strftime("%d-%m-%Y")
 
+  # Cek apakah sudah ada data untuk tanggal dan kelas ini sebelumnya
   df_existing = pd.DataFrame()
   if not df_absensi.empty:
     df_existing = df_absensi[
@@ -193,42 +198,47 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
         & (df_absensi["Kelas"] == kelas_terpilih)
     ]
 
-  data_template = []
-  for siswa in daftar_siswa:
-    status_awal = "Hadir"
-    if not df_existing.empty:
-      match = df_existing[df_existing["Nama Siswa"] == siswa]
-      if not match.empty:
-        status_awal = match.iloc[0]["Status"]
+  status_input = {}
 
-    data_template.append({
-        "Tanggal": tgl_str,
-        "Kelas": kelas_terpilih,
-        "Nama Siswa": siswa,
-        "Status": status_awal,
-    })
+  with st.form(key=f"form_absen_{kelas_terpilih}_{tgl_str}"):
+    for i, siswa in enumerate(daftar_siswa, 1):
+      status_awal_idx = 0  # Default "Hadir"
+      options_list = ["Hadir", "Sakit", "Izin", "Alpa"]
 
-  df_input = pd.DataFrame(data_template)
+      if not df_existing.empty:
+        match = df_existing[df_existing["Nama Siswa"] == siswa]
+        if not match.empty:
+          val = match.iloc[0]["Status"]
+          if val in options_list:
+            status_awal_idx = options_list.index(val)
 
-  edited_df = st.data_editor(
-      df_input,
-      column_config={
-          "Tanggal": st.column_config.TextColumn("Tanggal", disabled=True),
-          "Kelas": st.column_config.TextColumn("Kelas", disabled=True),
-          "Nama Siswa": st.column_config.TextColumn("Nama Siswa", disabled=True),
-          "Status": st.column_config.SelectboxColumn(
-              "Status Kehadiran",
-              options=["Hadir", "Sakit", "Izin", "Alpa"],
-              required=True,
-          ),
-      },
-      hide_index=True,
-      use_container_width=True,
-      key=f"editor_{kelas_terpilih}_{tgl_str}",
-  )
+      st.markdown(f"**{i}. {siswa}**")
+      status_input[siswa] = st.radio(
+          f"Status {siswa}",
+          options_list,
+          index=status_awal_idx,
+          horizontal=True,
+          key=f"radio_{kelas_terpilih}_{siswa}",
+          label_visibility="collapsed",
+      )
+      st.markdown("---")
 
-  if st.button("💾 Simpan Absensi", type="primary"):
+    btn_simpan = st.form_submit_button("💾 Simpan Absensi", type="primary")
+
+  if btn_simpan:
     with st.spinner("Menyimpan data ke Google Sheets..."):
+      data_baru = []
+      for siswa, status in status_input.items():
+        data_baru.append({
+            "Tanggal": tgl_str,
+            "Kelas": kelas_terpilih,
+            "Nama Siswa": siswa,
+            "Status": status,
+        })
+
+      df_baru = pd.DataFrame(data_baru)
+
+      # Hapus data lama jika tanggal & kelas sama (mencegah duplikat)
       if not df_absensi.empty:
         df_absensi = df_absensi[
             ~(
@@ -237,16 +247,17 @@ if menu_pilihan == "Wali Kelas (Input Absen)":
             )
         ]
 
-      df_absensi = pd.concat([df_absensi, edited_df], ignore_index=True)
+      df_absensi = pd.concat([df_absensi, df_baru], ignore_index=True)
       save_data(df_absensi)
 
       st.success(
-          f"✅ Absensi {kelas_terpilih} tanggal {tgl_str} berhasil disimpan!"
+          f"✅ Absensi {kelas_terpilih} tanggal {tgl_str} berhasil disimpan ke"
+          " Google Sheets!"
       )
       st.rerun()
 
 # =========================================================
-# 2. HALAMAN ADMIN
+# 2. HALAMAN ADMIN (DILENGKAPI PASSWORD)
 # =========================================================
 else:
   st.subheader("🔐 Login Admin")
